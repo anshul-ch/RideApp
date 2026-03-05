@@ -62,5 +62,12 @@ namespace RideApp.Controllers
             var success = await _service.RejectRide(id);
             return Json(new { success });
         }
+
+        [HttpPost]
+        public async Task<IActionResult> UpdateDriverLocation([FromBody] DriverLocationUpdate update)
+        {
+            await _service.UpdateDriverLocation(update.DriverId, update.Latitude, update.Longitude);
+            return Json(new { success = true });
+        }
     }
 }

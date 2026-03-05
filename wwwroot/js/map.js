@@ -34,9 +34,16 @@ function initUserMap() {
             .addTo(map)
             .bindPopup('You are here')
             .openPopup();
+
+        // Continuously watch location and update marker
+        navigator.geolocation.watchPosition(function (p) {
+            userLat = p.coords.latitude;
+            userLng = p.coords.longitude;
+            userMarker.setLatLng([userLat, userLng]);
+        }, null, { enableHighAccuracy: true });
     }, function () {
         showMessage('userMessage', 'Unable to get your location. Please enable location services.', 'danger');
-    });
+    }, { enableHighAccuracy: true });
 }
 
 function findDrivers() {
@@ -175,7 +182,24 @@ function registerDriver() {
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                 attribution: '&copy; OpenStreetMap'
             }).addTo(driverMap);
-            L.marker([lat, lng]).addTo(driverMap).bindPopup('Your location').openPopup();
+            var driverMarker = L.marker([lat, lng]).addTo(driverMap).bindPopup('Your location').openPopup();
+
+            // Continuously watch driver location, update marker and DB
+            navigator.geolocation.watchPosition(function (p) {
+                var newLat = p.coords.latitude;
+                var newLng = p.coords.longitude;
+                driverMarker.setLatLng([newLat, newLng]);
+
+                fetch('/Ride/UpdateDriverLocation', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        driverId: currentDriverId,
+                        latitude: newLat,
+                        longitude: newLng
+                    })
+                });
+            }, null, { enableHighAccuracy: true });
 
             pendingRidesInterval = setInterval(checkPendingRides, 3000);
         })
@@ -184,7 +208,7 @@ function registerDriver() {
         });
     }, function () {
         alert('Unable to get location. Please enable location services.');
-    });
+    }, { enableHighAccuracy: true });
 }
 
 function checkPendingRides() {
