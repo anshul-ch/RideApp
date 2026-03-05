@@ -1,26 +1,22 @@
 ﻿using MongoDB.Driver;
 using RideApp.Models;
 
-namespace RideApp.Services
+namespace RideApp.Services;
+
+public class MongoService
 {
-    public class MongoService
+    public IMongoCollection<Driver> Drivers { get; }
+    public IMongoCollection<Ride> Rides { get; }
+
+    public MongoService(IConfiguration config)
     {
-        public IMongoCollection<Driver> Drivers;
-        public IMongoCollection<Ride> Rides;
+        var connStr = Environment.GetEnvironmentVariable("MONGODB_CONNECTION_STRING")
+            ?? config["MongoDb:ConnectionString"];
+        var dbName = Environment.GetEnvironmentVariable("MONGODB_DATABASE")
+            ?? config["MongoDb:Database"];
 
-        public MongoService(IConfiguration config)
-        {
-            var connectionString = Environment.GetEnvironmentVariable("MONGODB_CONNECTION_STRING")
-                ?? config["MongoDb:ConnectionString"];
-
-            var database = Environment.GetEnvironmentVariable("MONGODB_DATABASE")
-                ?? config["MongoDb:Database"];
-
-            var client = new MongoClient(connectionString);
-            var db = client.GetDatabase(database);
-
-            Drivers = db.GetCollection<Driver>("Drivers");
-            Rides = db.GetCollection<Ride>("Rides");
-        }
+        var db = new MongoClient(connStr).GetDatabase(dbName);
+        Drivers = db.GetCollection<Driver>("Drivers");
+        Rides = db.GetCollection<Ride>("Rides");
     }
 }

@@ -1,98 +1,60 @@
-﻿let map, driverMap;
-let userMarker;
-let driverMarkers = [];
-let userLat, userLng;
-let currentRole = null;
-let currentDriverId = null;
-let currentRideId = null;
-let rideStatusInterval = null;
-let pendingRidesInterval = null;
-let driverLiveMarker = null;
-let userLiveMarkerOnDriverMap = null;
-let driverLocationInterval = null;
+var map, driverMap, userMarker, driverLiveMarker;
+var driverMarkers = [];
+var userLat, userLng;
+var currentDriverId, currentRideId;
+var pollTimer, pendingTimer, trackTimer;
 
-function getLocationErrorMessage(err) {
-    if (err.code === 1) return 'Location permission denied. Please allow location access in your browser settings.';
-    if (err.code === 2) return 'Location unavailable. Make sure GPS is enabled on your device.';
-    if (err.code === 3) return 'Location request timed out. Please try again.';
-    return 'Unable to get your location.';
+function $(id) { return document.getElementById(id); }
+
+function show(id) { $(id).style.display = 'block'; }
+function hide(id) { $(id).style.display = 'none'; }
+
+function msg(id, text, type) {
+    var el = $(id);
+    el.className = 'alert alert-' + type;
+    el.textContent = text;
+    show(id);
 }
 
-function isSecureContext() {
-    return window.isSecureContext || location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+function post(url, data) {
+    return fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+    }).then(function (r) { return r.json(); });
 }
 
-function initMapAt(containerId, lat, lng, zoom) {
-    var m = L.map(containerId).setView([lat, lng], zoom);
+function get(url) {
+    return fetch(url).then(function (r) { return r.json(); });
+}
+
+function makeMap(id, lat, lng, zoom) {
+    var m = L.map(id).setView([lat, lng], zoom || 14);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; OpenStreetMap'
     }).addTo(m);
     return m;
 }
 
-function selectRole(role) {
-    currentRole = role;
-    document.getElementById('roleSelection').style.display = 'none';
-
-    if (role === 'user') {
-        document.getElementById('userPanel').style.display = 'block';
-        initUserMap();
-    } else {
-        document.getElementById('driverPanel').style.display = 'block';
-    }
+function emoji(ch) {
+    return L.divIcon({ html: '<div style="font-size:24px">' + ch + '</div>', iconSize: [30, 30], iconAnchor: [15, 15] });
 }
 
-function initUserMap() {
-    if (!navigator.geolocation || !isSecureContext()) {
-        showMessage('userMessage',
-            'Geolocation requires HTTPS. ' +
-            (location.protocol !== 'https:' && location.hostname !== 'localhost'
-                ? 'This page is served over HTTP — please access it via HTTPS.'
-                : 'Your browser does not support geolocation.') +
-            ' You can enter your location manually below.', 'warning');
-        showManualLocationInput();
-        // Still load the map with a default view
-        map = initMapAt('map', 28.6139, 77.2090, 12);
+function fitTwo(m, a, b) {
+    m.fitBounds(L.latLngBounds(a, b), { padding: [50, 50] });
+}
+
+function getLocation(ok, fail) {
+    if (!navigator.geolocation || !window.isSecureContext) {
+        fail('Geolocation needs HTTPS.');
         return;
     }
-
-    showMessage('userMessage', 'Getting your location...', 'info');
-
-    getUserLocation(function (lat, lng) {
-        userLat = lat;
-        userLng = lng;
-
-        map = initMapAt('map', userLat, userLng, 14);
-
-        userMarker = L.marker([userLat, userLng])
-            .addTo(map)
-            .bindPopup('You are here')
-            .openPopup();
-
-        showMessage('userMessage', 'Location acquired!', 'success');
-        setTimeout(function () {
-            document.getElementById('userMessage').style.display = 'none';
-        }, 2000);
-
-        navigator.geolocation.watchPosition(function (p) {
-            userLat = p.coords.latitude;
-            userLng = p.coords.longitude;
-            userMarker.setLatLng([userLat, userLng]);
-        }, null, { enableHighAccuracy: false, maximumAge: 30000 });
-    }, function (msg) {
-        showMessage('userMessage', msg + ' You can enter your location manually below.', 'danger');
-        showManualLocationInput();
-        map = initMapAt('map', 28.6139, 77.2090, 12);
-    });
-}
-
-function getUserLocation(onSuccess, onError) {
     navigator.geolocation.getCurrentPosition(
-        function (pos) { onSuccess(pos.coords.latitude, pos.coords.longitude); },
+        function (p) { ok(p.coords.latitude, p.coords.longitude); },
         function () {
             navigator.geolocation.getCurrentPosition(
-                function (pos) { onSuccess(pos.coords.latitude, pos.coords.longitude); },
-                function (err) { onError(getLocationErrorMessage(err)); },
+                function (p) { ok(p.coords.latitude, p.coords.longitude); },
+                function () { fail('Could not get location. Check browser permissions.'); },
                 { enableHighAccuracy: false, timeout: 15000, maximumAge: 60000 }
             );
         },
@@ -100,374 +62,228 @@ function getUserLocation(onSuccess, onError) {
     );
 }
 
-function showManualLocationInput() {
-    var container = document.getElementById('driverList');
-    container.innerHTML =
+function watchLocation(marker, onMove) {
+    navigator.geolocation.watchPosition(function (p) {
+        var lat = p.coords.latitude, lng = p.coords.longitude;
+        marker.setLatLng([lat, lng]);
+        if (onMove) onMove(lat, lng);
+    }, null, { enableHighAccuracy: false, maximumAge: 30000 });
+}
+
+
+function selectRole(role) {
+    hide('roleSelection');
+    if (role === 'user') { show('userPanel'); initUserMap(); }
+    else show('driverPanel');
+}
+
+
+function initUserMap() {
+    msg('userMessage', 'Getting your location...', 'info');
+
+    getLocation(function (lat, lng) {
+        userLat = lat;
+        userLng = lng;
+        map = makeMap('map', lat, lng);
+        userMarker = L.marker([lat, lng]).addTo(map).bindPopup('You').openPopup();
+        hide('userMessage');
+        watchLocation(userMarker, function (la, ln) { userLat = la; userLng = ln; });
+    }, function (err) {
+        msg('userMessage', err + ' Enter location manually.', 'warning');
+        map = makeMap('map', 28.6139, 77.2090, 12);
+        showManualInput('driverList', 'manualLat', 'manualLng', applyManualLocation);
+    });
+}
+
+function showManualInput(containerId, latId, lngId, onApply) {
+    $(containerId).innerHTML =
         '<div class="card mb-3"><div class="card-body">' +
-        '<h5>Set Location Manually</h5>' +
+        '<h6>Set Location Manually</h6>' +
         '<div class="row g-2 mb-2">' +
-        '<div class="col"><input type="number" step="any" class="form-control" id="manualLat" placeholder="Latitude" /></div>' +
-        '<div class="col"><input type="number" step="any" class="form-control" id="manualLng" placeholder="Longitude" /></div>' +
+        '<div class="col"><input type="number" step="any" class="form-control" id="' + latId + '" placeholder="Latitude"></div>' +
+        '<div class="col"><input type="number" step="any" class="form-control" id="' + lngId + '" placeholder="Longitude"></div>' +
         '</div>' +
-        '<button class="btn btn-outline-primary btn-sm" onclick="applyManualLocation()">Set Location</button>' +
+        '<button class="btn btn-outline-primary btn-sm" id="' + latId + 'Btn">Set Location</button>' +
         '</div></div>';
+    $(latId + 'Btn').onclick = onApply;
 }
 
 function applyManualLocation() {
-    var lat = parseFloat(document.getElementById('manualLat').value);
-    var lng = parseFloat(document.getElementById('manualLng').value);
-    if (isNaN(lat) || isNaN(lng)) {
-        alert('Please enter valid latitude and longitude values.');
-        return;
-    }
-    userLat = lat;
-    userLng = lng;
+    var lat = parseFloat($('manualLat').value);
+    var lng = parseFloat($('manualLng').value);
+    if (isNaN(lat) || isNaN(lng)) { alert('Enter valid coordinates.'); return; }
+    userLat = lat; userLng = lng;
     map.setView([lat, lng], 14);
-    if (userMarker) {
-        userMarker.setLatLng([lat, lng]);
-    } else {
-        userMarker = L.marker([lat, lng]).addTo(map).bindPopup('Your location').openPopup();
-    }
-    document.getElementById('driverList').innerHTML = '';
-    showMessage('userMessage', 'Location set! You can now find nearby drivers.', 'success');
+    if (userMarker) userMarker.setLatLng([lat, lng]);
+    else userMarker = L.marker([lat, lng]).addTo(map).bindPopup('You').openPopup();
+    $('driverList').innerHTML = '';
+    msg('userMessage', 'Location set!', 'success');
 }
 
 function findDrivers() {
-    var name = document.getElementById('userName').value.trim();
-    if (!name) {
-        showMessage('userMessage', 'Please enter your name.', 'warning');
-        return;
-    }
-    if (!userLat || !userLng) {
-        showMessage('userMessage', 'Waiting for location... Please allow location access.', 'warning');
-        return;
-    }
+    var name = $('userName').value.trim();
+    if (!name) { msg('userMessage', 'Enter your name.', 'warning'); return; }
+    if (!userLat) { msg('userMessage', 'Location not set yet.', 'warning'); return; }
 
     driverMarkers.forEach(function (m) { map.removeLayer(m); });
     driverMarkers = [];
 
-    fetch('/Ride/FindDrivers', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ latitude: userLat, longitude: userLng })
-    })
-    .then(function (r) { return r.json(); })
-    .then(function (drivers) {
-        var list = document.getElementById('driverList');
-
-        if (drivers.length === 0) {
-            list.innerHTML = '<div class="alert alert-info">No drivers available within 5 km. Please try again later.</div>';
-            showMessage('userMessage', 'No drivers found nearby.', 'info');
+    post('/Ride/FindDrivers', { latitude: userLat, longitude: userLng }).then(function (drivers) {
+        var list = $('driverList');
+        if (!drivers.length) {
+            list.innerHTML = '<div class="alert alert-info">No drivers within 5 km.</div>';
             return;
         }
 
-        var html = '<h4>Available Drivers Nearby</h4><div class="list-group">';
+        var html = '<h5>Nearby Drivers</h5><div class="list-group">';
         drivers.forEach(function (d) {
-            var marker = L.marker([d.location.latitude, d.location.longitude])
-                .addTo(map)
-                .bindPopup('🚗 ' + d.name + ' - ' + d.vehicleNumber);
-            driverMarkers.push(marker);
-
+            var m = L.marker([d.location.latitude, d.location.longitude]).addTo(map)
+                .bindPopup(d.name + ' - ' + d.vehicleNumber);
+            driverMarkers.push(m);
             html += '<div class="list-group-item d-flex justify-content-between align-items-center">' +
-                '<div><strong>' + d.name + '</strong> - ' + d.vehicleNumber + '</div>' +
-                '<button class="btn btn-sm btn-primary" onclick="requestRide(\'' + d.id + '\')">Request Ride</button>' +
-                '</div>';
+                '<span><strong>' + d.name + '</strong> — ' + d.vehicleNumber + '</span>' +
+                '<button class="btn btn-sm btn-primary" onclick="requestRide(\'' + d.id + '\')">Request</button></div>';
         });
-        html += '</div>';
-        list.innerHTML = html;
-
-        showMessage('userMessage', 'Found ' + drivers.length + ' driver(s) within 5 km!', 'success');
-    })
-    .catch(function () {
-        showMessage('userMessage', 'Error finding drivers. Please try again.', 'danger');
+        list.innerHTML = html + '</div>';
+        msg('userMessage', drivers.length + ' driver(s) found.', 'success');
     });
 }
 
 function requestRide(driverId) {
-    var name = document.getElementById('userName').value.trim();
-
-    fetch('/Ride/RequestRide', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            userName: name,
-            latitude: userLat,
-            longitude: userLng,
-            driverId: driverId
-        })
-    })
-    .then(function (r) { return r.json(); })
-    .then(function (ride) {
-        currentRideId = ride.id;
-        document.getElementById('driverList').innerHTML =
-            '<div class="alert alert-info">Ride requested! Waiting for driver to respond...</div>';
-        showMessage('userMessage', 'Ride request sent! Waiting for driver response...', 'info');
-
-        rideStatusInterval = setInterval(checkRideStatus, 3000);
-    })
-    .catch(function () {
-        showMessage('userMessage', 'Error requesting ride. Please try again.', 'danger');
-    });
+    var name = $('userName').value.trim();
+    post('/Ride/RequestRide', { userName: name, latitude: userLat, longitude: userLng, driverId: driverId })
+        .then(function (ride) {
+            currentRideId = ride.id;
+            $('driverList').innerHTML = '<div class="alert alert-info">Waiting for driver...</div>';
+            pollTimer = setInterval(checkRideStatus, 3000);
+        });
 }
 
 function checkRideStatus() {
     if (!currentRideId) return;
 
-    fetch('/Ride/RideDetails?id=' + currentRideId)
-        .then(function (r) { return r.json(); })
-        .then(function (ride) {
-            if (ride.status === 'Accepted') {
-                clearInterval(rideStatusInterval);
+    get('/Ride/RideDetails?id=' + currentRideId).then(function (ride) {
+        if (ride.status === 'Accepted') {
+            clearInterval(pollTimer);
+            driverMarkers.forEach(function (m) { map.removeLayer(m); });
+            driverMarkers = [];
 
-                // Remove old driver markers from search
-                driverMarkers.forEach(function (m) { map.removeLayer(m); });
-                driverMarkers = [];
+            driverLiveMarker = L.marker(
+                [ride.driverLocation.latitude, ride.driverLocation.longitude],
+                { icon: emoji('🚗') }
+            ).addTo(map).bindPopup(ride.driverName + ' — ' + ride.driverVehicle);
 
-                // Show driver on user's map
-                var driverIcon = L.divIcon({ className: 'driver-icon', html: '<div style="font-size:24px">🚗</div>', iconSize: [30, 30], iconAnchor: [15, 15] });
-                driverLiveMarker = L.marker(
-                    [ride.driverLocation.latitude, ride.driverLocation.longitude],
-                    { icon: driverIcon }
-                ).addTo(map).bindPopup('🚗 ' + ride.driverName + ' - ' + ride.driverVehicle);
+            fitTwo(map, [userLat, userLng], [ride.driverLocation.latitude, ride.driverLocation.longitude]);
 
-                // Fit map to show both user and driver
-                var bounds = L.latLngBounds(
-                    [userLat, userLng],
-                    [ride.driverLocation.latitude, ride.driverLocation.longitude]
-                );
-                map.fitBounds(bounds, { padding: [50, 50] });
+            $('driverList').innerHTML =
+                '<div class="alert alert-success"><h5>Ride Confirmed!</h5>' +
+                '<p><strong>' + ride.driverName + '</strong> (' + ride.driverVehicle + ') is coming.</p></div>';
 
-                document.getElementById('driverList').innerHTML =
-                    '<div class="alert alert-success">' +
-                    '<h5>🎉 Ride Confirmed!</h5>' +
-                    '<p><strong>' + ride.driverName + '</strong> (' + ride.driverVehicle + ') is on the way!</p>' +
-                    '<p class="text-muted mb-0">Tracking driver location live on the map.</p></div>';
-                showMessage('userMessage', 'Your ride has been accepted!', 'success');
-
-                // Poll driver location every 3s to update marker
-                driverLocationInterval = setInterval(function () {
-                    fetch('/Ride/DriverLocation?driverId=' + ride.driverId)
-                        .then(function (r) { return r.json(); })
-                        .then(function (loc) {
-                            if (driverLiveMarker) {
-                                driverLiveMarker.setLatLng([loc.latitude, loc.longitude]);
-                            }
-                        });
-                }, 3000);
-
-            } else if (ride.status === 'Rejected') {
-                clearInterval(rideStatusInterval);
-                document.getElementById('driverList').innerHTML =
-                    '<div class="alert alert-warning">' +
-                    '<p>The driver declined your request. Please try another driver.</p>' +
-                    '<button class="btn btn-primary" onclick="findDrivers()">Find Other Drivers</button></div>';
-                showMessage('userMessage', 'Ride was declined. Try another driver.', 'warning');
-                currentRideId = null;
-            }
-        });
-}
-
-function registerDriver() {
-    var name = document.getElementById('driverName').value.trim();
-    var vehicle = document.getElementById('vehicleNumber').value.trim();
-
-    if (!name || !vehicle) {
-        alert('Please enter your name and vehicle number.');
-        return;
-    }
-
-    if (!navigator.geolocation || !isSecureContext()) {
-        alert('Geolocation requires HTTPS. Please access this site via HTTPS or localhost.');
-        return;
-    }
-
-    document.querySelector('#driverRegForm button').disabled = true;
-    document.querySelector('#driverRegForm button').textContent = 'Getting location...';
-
-    getDriverLocation(function (lat, lng) {
-        fetch('/Ride/RegisterDriver', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                name: name,
-                vehicleNumber: vehicle,
-                isAvailable: true,
-                location: { latitude: lat, longitude: lng }
-            })
-        })
-        .then(function (r) { return r.json(); })
-        .then(function (driver) {
-            currentDriverId = driver.id;
-            document.getElementById('driverRegForm').style.display = 'none';
-            document.getElementById('driverDashboard').style.display = 'block';
-
-            driverMap = initMapAt('driverMap', lat, lng, 14);
-            var driverMarker = L.marker([lat, lng]).addTo(driverMap).bindPopup('Your location').openPopup();
-
-            navigator.geolocation.watchPosition(function (p) {
-                var newLat = p.coords.latitude;
-                var newLng = p.coords.longitude;
-                driverMarker.setLatLng([newLat, newLng]);
-
-                fetch('/Ride/UpdateDriverLocation', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        driverId: currentDriverId,
-                        latitude: newLat,
-                        longitude: newLng
-                    })
+            trackTimer = setInterval(function () {
+                get('/Ride/DriverLocation?driverId=' + ride.driverId).then(function (loc) {
+                    if (driverLiveMarker) driverLiveMarker.setLatLng([loc.latitude, loc.longitude]);
                 });
-            }, null, { enableHighAccuracy: false, maximumAge: 30000 });
+            }, 3000);
 
-            pendingRidesInterval = setInterval(checkPendingRides, 3000);
-        })
-        .catch(function () {
-            alert('Error registering. Please try again.');
-            document.querySelector('#driverRegForm button').disabled = false;
-            document.querySelector('#driverRegForm button').textContent = 'Go Online';
-        });
-    }, function (msg) {
-        document.querySelector('#driverRegForm button').disabled = false;
-        document.querySelector('#driverRegForm button').textContent = 'Go Online';
-        showDriverManualLocation(name, vehicle);
-        alert(msg + ' You can enter your location manually.');
+        } else if (ride.status === 'Rejected') {
+            clearInterval(pollTimer);
+            $('driverList').innerHTML =
+                '<div class="alert alert-warning">Driver declined. ' +
+                '<button class="btn btn-primary btn-sm" onclick="findDrivers()">Try Again</button></div>';
+            currentRideId = null;
+        }
     });
 }
 
-function getDriverLocation(onSuccess, onError) {
-    // Try high accuracy first with a short timeout, then fall back to low accuracy
-    navigator.geolocation.getCurrentPosition(
-        function (pos) { onSuccess(pos.coords.latitude, pos.coords.longitude); },
-        function () {
-            // Fallback: low accuracy (Wi-Fi/IP based — much faster)
-            navigator.geolocation.getCurrentPosition(
-                function (pos) { onSuccess(pos.coords.latitude, pos.coords.longitude); },
-                function (err) { onError(getLocationErrorMessage(err)); },
-                { enableHighAccuracy: false, timeout: 15000, maximumAge: 60000 }
-            );
-        },
-        { enableHighAccuracy: true, timeout: 5000, maximumAge: 30000 }
-    );
-}
 
-function showDriverManualLocation(name, vehicle) {
-    var form = document.getElementById('driverRegForm');
-    var existing = document.getElementById('driverManualLoc');
-    if (existing) return;
-    var div = document.createElement('div');
-    div.id = 'driverManualLoc';
-    div.className = 'mt-3';
-    div.innerHTML =
-        '<h6>Enter Location Manually</h6>' +
-        '<div class="row g-2 mb-2">' +
-        '<div class="col"><input type="number" step="any" class="form-control" id="driverManualLat" placeholder="Latitude" /></div>' +
-        '<div class="col"><input type="number" step="any" class="form-control" id="driverManualLng" placeholder="Longitude" /></div>' +
-        '</div>' +
-        '<button class="btn btn-outline-success btn-sm" onclick="registerDriverManual()">Go Online with Manual Location</button>';
-    form.appendChild(div);
+function registerDriver() {
+    var name = $('driverName').value.trim();
+    var vehicle = $('vehicleNumber').value.trim();
+    if (!name || !vehicle) { alert('Fill in name and vehicle number.'); return; }
+
+    var btn = document.querySelector('#driverRegForm button');
+    btn.disabled = true; btn.textContent = 'Getting location...';
+
+    getLocation(function (lat, lng) {
+        goOnline(name, vehicle, lat, lng);
+    }, function (err) {
+        btn.disabled = false; btn.textContent = 'Go Online';
+        alert(err + ' Enter location manually.');
+        if (!$('driverManualLoc')) {
+            var div = document.createElement('div');
+            div.id = 'driverManualLoc';
+            div.className = 'mt-3';
+            div.innerHTML =
+                '<div class="row g-2 mb-2">' +
+                '<div class="col"><input type="number" step="any" class="form-control" id="drvLat" placeholder="Latitude"></div>' +
+                '<div class="col"><input type="number" step="any" class="form-control" id="drvLng" placeholder="Longitude"></div>' +
+                '</div><button class="btn btn-outline-success btn-sm" onclick="registerDriverManual()">Go Online</button>';
+            $('driverRegForm').appendChild(div);
+        }
+    });
 }
 
 function registerDriverManual() {
-    var lat = parseFloat(document.getElementById('driverManualLat').value);
-    var lng = parseFloat(document.getElementById('driverManualLng').value);
-    if (isNaN(lat) || isNaN(lng)) { alert('Enter valid latitude and longitude.'); return; }
-    var name = document.getElementById('driverName').value.trim();
-    var vehicle = document.getElementById('vehicleNumber').value.trim();
+    var lat = parseFloat($('drvLat').value), lng = parseFloat($('drvLng').value);
+    if (isNaN(lat) || isNaN(lng)) { alert('Enter valid coordinates.'); return; }
+    var name = $('driverName').value.trim(), vehicle = $('vehicleNumber').value.trim();
+    goOnline(name, vehicle, lat, lng);
+}
 
-    fetch('/Ride/RegisterDriver', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name, vehicleNumber: vehicle, isAvailable: true, location: { latitude: lat, longitude: lng } })
-    })
-    .then(function (r) { return r.json(); })
-    .then(function (driver) {
-        currentDriverId = driver.id;
-        document.getElementById('driverRegForm').style.display = 'none';
-        document.getElementById('driverDashboard').style.display = 'block';
-        driverMap = initMapAt('driverMap', lat, lng, 14);
-        L.marker([lat, lng]).addTo(driverMap).bindPopup('Your location').openPopup();
-        pendingRidesInterval = setInterval(checkPendingRides, 3000);
-    })
-    .catch(function () { alert('Error registering. Please try again.'); });
+function goOnline(name, vehicle, lat, lng) {
+    post('/Ride/RegisterDriver', { name: name, vehicleNumber: vehicle, isAvailable: true, location: { latitude: lat, longitude: lng } })
+        .then(function (driver) {
+            currentDriverId = driver.id;
+            hide('driverRegForm');
+            show('driverDashboard');
+
+            driverMap = makeMap('driverMap', lat, lng);
+            var marker = L.marker([lat, lng]).addTo(driverMap).bindPopup('You').openPopup();
+
+            watchLocation(marker, function (la, ln) {
+                post('/Ride/UpdateDriverLocation', { driverId: currentDriverId, latitude: la, longitude: ln });
+            });
+
+            pendingTimer = setInterval(checkPendingRides, 3000);
+        });
 }
 
 function checkPendingRides() {
     if (!currentDriverId) return;
 
-    fetch('/Ride/PendingRides?driverId=' + currentDriverId)
-        .then(function (r) { return r.json(); })
-        .then(function (rides) {
-            var container = document.getElementById('pendingRides');
+    get('/Ride/PendingRides?driverId=' + currentDriverId).then(function (rides) {
+        var el = $('pendingRides');
+        if (!rides.length) { el.innerHTML = '<p class="text-muted">No pending requests...</p>'; return; }
 
-            if (rides.length === 0) {
-                container.innerHTML = '<p class="text-muted">No pending requests. Waiting for ride requests...</p>';
-                return;
-            }
-
-            var html = '';
-            rides.forEach(function (r) {
-                html += '<div class="card mb-2"><div class="card-body">' +
-                    '<h5>' + r.userName + '</h5>' +
-                    '<p class="text-muted">Requesting a ride</p>' +
-                    '<button class="btn btn-success btn-sm me-2" onclick="respondRide(\'' + r.id + '\', true)">Accept</button>' +
-                    '<button class="btn btn-danger btn-sm" onclick="respondRide(\'' + r.id + '\', false)">Reject</button>' +
-                    '</div></div>';
-            });
-            container.innerHTML = html;
+        var html = '';
+        rides.forEach(function (r) {
+            html += '<div class="card mb-2"><div class="card-body">' +
+                '<h6>' + r.userName + '</h6>' +
+                '<button class="btn btn-success btn-sm me-2" onclick="respondRide(\'' + r.id + '\',true)">Accept</button>' +
+                '<button class="btn btn-danger btn-sm" onclick="respondRide(\'' + r.id + '\',false)">Reject</button>' +
+                '</div></div>';
         });
+        el.innerHTML = html;
+    });
 }
 
 function respondRide(rideId, accept) {
-    var action = accept ? 'AcceptRide' : 'RejectRide';
+    var url = '/Ride/' + (accept ? 'AcceptRide' : 'RejectRide') + '?id=' + rideId;
+    post(url).then(function (res) {
+        if (!res.success) return;
+        if (!accept) { checkPendingRides(); return; }
 
-    fetch('/Ride/' + action + '?id=' + rideId, { method: 'POST' })
-        .then(function (r) { return r.json(); })
-        .then(function (result) {
-            if (result.success) {
-                if (accept) {
-                    // Stop polling for pending rides
-                    clearInterval(pendingRidesInterval);
+        clearInterval(pendingTimer);
+        get('/Ride/RideDetails?id=' + rideId).then(function (ride) {
+            var loc = ride.userLocation;
+            L.marker([loc.latitude, loc.longitude], { icon: emoji('🧑') })
+                .addTo(driverMap).bindPopup(ride.userName + ' (Pickup)').openPopup();
 
-                    // Fetch ride details to get user location
-                    fetch('/Ride/RideDetails?id=' + rideId)
-                        .then(function (r) { return r.json(); })
-                        .then(function (ride) {
-                            // Show user on driver's map
-                            var userIcon = L.divIcon({ className: 'user-icon', html: '<div style="font-size:24px">🧑</div>', iconSize: [30, 30], iconAnchor: [15, 15] });
-                            userLiveMarkerOnDriverMap = L.marker(
-                                [ride.userLocation.latitude, ride.userLocation.longitude],
-                                { icon: userIcon }
-                            ).addTo(driverMap).bindPopup('🧑 ' + ride.userName + ' (Pickup)').openPopup();
+            fitTwo(driverMap, driverMap.getCenter(), [loc.latitude, loc.longitude]);
 
-                            // Fit map to show both driver and user
-                            var driverLatLng = driverMap.getCenter();
-                            var bounds = L.latLngBounds(
-                                [driverLatLng.lat, driverLatLng.lng],
-                                [ride.userLocation.latitude, ride.userLocation.longitude]
-                            );
-                            driverMap.fitBounds(bounds, { padding: [50, 50] });
-
-                            document.getElementById('pendingRides').innerHTML =
-                                '<div class="alert alert-success">' +
-                                '<h5>🎉 Ride Accepted!</h5>' +
-                                '<p>Picking up <strong>' + ride.userName + '</strong></p>' +
-                                '<p class="text-muted mb-0">User location is shown on the map.</p></div>';
-                        });
-                } else {
-                    alert('Ride rejected.');
-                    checkPendingRides();
-                }
-            }
-        })
-        .catch(function () {
-            alert('Error responding to ride. Please try again.');
+            $('pendingRides').innerHTML =
+                '<div class="alert alert-success"><h5>Ride Accepted</h5>' +
+                '<p>Picking up <strong>' + ride.userName + '</strong></p></div>';
         });
-}
-
-function showMessage(elementId, message, type) {
-    var el = document.getElementById(elementId);
-    el.className = 'alert alert-' + type;
-    el.textContent = message;
-    el.style.display = 'block';
+    });
 }

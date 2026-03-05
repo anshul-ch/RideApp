@@ -1,8 +1,7 @@
-﻿namespace RideApp.Models
+﻿namespace RideApp.Models;
+
+public class Location
 {
-    public class Location
-    {
-        public double Latitude { get; set; }
-        public double Longitude { get; set; }
-    }
+    public double Latitude { get; set; }
+    public double Longitude { get; set; }
 }
