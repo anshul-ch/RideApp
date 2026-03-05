@@ -232,10 +232,10 @@ function registerDriver() {
         return;
     }
 
-    navigator.geolocation.getCurrentPosition(function (pos) {
-        var lat = pos.coords.latitude;
-        var lng = pos.coords.longitude;
+    document.querySelector('#driverRegForm button').disabled = true;
+    document.querySelector('#driverRegForm button').textContent = 'Getting location...';
 
+    getDriverLocation(function (lat, lng) {
         fetch('/Ride/RegisterDriver', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -252,13 +252,9 @@ function registerDriver() {
             document.getElementById('driverRegForm').style.display = 'none';
             document.getElementById('driverDashboard').style.display = 'block';
 
-            driverMap = L.map('driverMap').setView([lat, lng], 14);
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '&copy; OpenStreetMap'
-            }).addTo(driverMap);
+            driverMap = initMapAt('driverMap', lat, lng, 14);
             var driverMarker = L.marker([lat, lng]).addTo(driverMap).bindPopup('Your location').openPopup();
 
-            // Continuously watch driver location, update marker and DB
             navigator.geolocation.watchPosition(function (p) {
                 var newLat = p.coords.latitude;
                 var newLng = p.coords.longitude;
@@ -273,16 +269,78 @@ function registerDriver() {
                         longitude: newLng
                     })
                 });
-            }, null, { enableHighAccuracy: true });
+            }, null, { enableHighAccuracy: false, maximumAge: 30000 });
 
             pendingRidesInterval = setInterval(checkPendingRides, 3000);
         })
         .catch(function () {
             alert('Error registering. Please try again.');
+            document.querySelector('#driverRegForm button').disabled = false;
+            document.querySelector('#driverRegForm button').textContent = 'Go Online';
         });
-    }, function (err) {
-        alert(getLocationErrorMessage(err));
-    }, { enableHighAccuracy: true, timeout: 10000 });
+    }, function (msg) {
+        document.querySelector('#driverRegForm button').disabled = false;
+        document.querySelector('#driverRegForm button').textContent = 'Go Online';
+        showDriverManualLocation(name, vehicle);
+        alert(msg + ' You can enter your location manually.');
+    });
+}
+
+function getDriverLocation(onSuccess, onError) {
+    // Try high accuracy first with a short timeout, then fall back to low accuracy
+    navigator.geolocation.getCurrentPosition(
+        function (pos) { onSuccess(pos.coords.latitude, pos.coords.longitude); },
+        function () {
+            // Fallback: low accuracy (Wi-Fi/IP based — much faster)
+            navigator.geolocation.getCurrentPosition(
+                function (pos) { onSuccess(pos.coords.latitude, pos.coords.longitude); },
+                function (err) { onError(getLocationErrorMessage(err)); },
+                { enableHighAccuracy: false, timeout: 15000, maximumAge: 60000 }
+            );
+        },
+        { enableHighAccuracy: true, timeout: 5000, maximumAge: 30000 }
+    );
+}
+
+function showDriverManualLocation(name, vehicle) {
+    var form = document.getElementById('driverRegForm');
+    var existing = document.getElementById('driverManualLoc');
+    if (existing) return;
+    var div = document.createElement('div');
+    div.id = 'driverManualLoc';
+    div.className = 'mt-3';
+    div.innerHTML =
+        '<h6>Enter Location Manually</h6>' +
+        '<div class="row g-2 mb-2">' +
+        '<div class="col"><input type="number" step="any" class="form-control" id="driverManualLat" placeholder="Latitude" /></div>' +
+        '<div class="col"><input type="number" step="any" class="form-control" id="driverManualLng" placeholder="Longitude" /></div>' +
+        '</div>' +
+        '<button class="btn btn-outline-success btn-sm" onclick="registerDriverManual()">Go Online with Manual Location</button>';
+    form.appendChild(div);
+}
+
+function registerDriverManual() {
+    var lat = parseFloat(document.getElementById('driverManualLat').value);
+    var lng = parseFloat(document.getElementById('driverManualLng').value);
+    if (isNaN(lat) || isNaN(lng)) { alert('Enter valid latitude and longitude.'); return; }
+    var name = document.getElementById('driverName').value.trim();
+    var vehicle = document.getElementById('vehicleNumber').value.trim();
+
+    fetch('/Ride/RegisterDriver', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name, vehicleNumber: vehicle, isAvailable: true, location: { latitude: lat, longitude: lng } })
+    })
+    .then(function (r) { return r.json(); })
+    .then(function (driver) {
+        currentDriverId = driver.id;
+        document.getElementById('driverRegForm').style.display = 'none';
+        document.getElementById('driverDashboard').style.display = 'block';
+        driverMap = initMapAt('driverMap', lat, lng, 14);
+        L.marker([lat, lng]).addTo(driverMap).bindPopup('Your location').openPopup();
+        pendingRidesInterval = setInterval(checkPendingRides, 3000);
+    })
+    .catch(function () { alert('Error registering. Please try again.'); });
 }
 
 function checkPendingRides() {
