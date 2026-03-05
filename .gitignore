@@ -1,0 +1,56 @@
+## .NET / Visual Studio
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+.vs/
+*.swp
+*.*~
+project.lock.json
+.DS_Store
+*.pyc
+nupkg/
+_ReSharper.*/
+*.[Rr]e[Ss]harper
+*.DotSettings.user
+*.ncrunchsolution
+*.ncrunchproject
+_NCrunch_*
+*.dotCover
+
+## User-specific / secrets
+appsettings.Development.json
+appsettings.Production.json
+secrets.json
+
+## NuGet
+*.nupkg
+**/[Pp]ackages/*
+!**/[Pp]ackages/build/
+*.nuget.props
+*.nuget.targets
+project.assets.json
+
+## Build results
+[Dd]ebugPublic/
+[Rr]eleases/
+build/
+msbuild.log
+msbuild.err
+msbuild.wrn
+
+## Docker
+docker-compose*.override.yml
+
+## IDE
+.idea/
+*.sln.iml

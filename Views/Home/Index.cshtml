@@ -1,0 +1,64 @@
+﻿@{
+    ViewData["Title"] = "RideApp";
+}
+
+<!-- Role Selection -->
+<div id="roleSelection" class="text-center mt-5">
+    <h2>Welcome to RideApp</h2>
+    <p class="lead">How would you like to use the app?</p>
+    <div class="d-flex justify-content-center gap-4 mt-4">
+        <div class="card shadow-sm" style="width: 18rem; cursor:pointer;" onclick="selectRole('user')">
+            <div class="card-body text-center">
+                <h1>🧑</h1>
+                <h5 class="card-title">I'm a User</h5>
+                <p class="card-text">Find nearby drivers and request a ride.</p>
+            </div>
+        </div>
+        <div class="card shadow-sm" style="width: 18rem; cursor:pointer;" onclick="selectRole('driver')">
+            <div class="card-body text-center">
+                <h1>🚗</h1>
+                <h5 class="card-title">I'm a Driver</h5>
+                <p class="card-text">Register as a driver and accept ride requests.</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- User Panel -->
+<div id="userPanel" style="display:none;">
+    <h3>Find a Ride</h3>
+    <div class="mb-3">
+        <label for="userName" class="form-label">Your Name</label>
+        <input type="text" class="form-control" id="userName" placeholder="Enter your name" />
+    </div>
+    <button class="btn btn-primary mb-3" onclick="findDrivers()">Find Riders Nearby</button>
+    <div id="userMessage" class="alert" style="display:none;"></div>
+    <div id="map" style="height:400px;" class="mb-3 rounded border"></div>
+    <div id="driverList"></div>
+</div>
+
+<!-- Driver Panel -->
+<div id="driverPanel" style="display:none;">
+    <h3>Driver Registration</h3>
+    <div id="driverRegForm">
+        <div class="mb-3">
+            <label for="driverName" class="form-label">Your Name</label>
+            <input type="text" class="form-control" id="driverName" placeholder="Enter your name" />
+        </div>
+        <div class="mb-3">
+            <label for="vehicleNumber" class="form-label">Vehicle Number</label>
+            <input type="text" class="form-control" id="vehicleNumber" placeholder="Enter vehicle number" />
+        </div>
+        <button class="btn btn-success" onclick="registerDriver()">Go Online</button>
+    </div>
+    <div id="driverDashboard" style="display:none;">
+        <div class="alert alert-success">You are online and available for rides!</div>
+        <div id="driverMap" style="height:300px;" class="mb-3 rounded border"></div>
+        <h4>Pending Ride Requests</h4>
+        <div id="pendingRides"><p class="text-muted">No pending requests. Waiting...</p></div>
+    </div>
+</div>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script src="~/js/map.js"></script>
