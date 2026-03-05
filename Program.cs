@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.HttpOverrides;
 using RideApp.Services;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -16,6 +17,12 @@ if (port != null)
 }
 
 var app = builder.Build();
+
+// Trust proxy headers (Render, Railway terminate TLS at the proxy)
+app.UseForwardedHeaders(new ForwardedHeadersOptions
+{
+    ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
+});
 
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())
