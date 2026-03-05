@@ -45,12 +45,29 @@ public class RideController(RideService service) : Controller
         Json(await service.GetPendingRides(driverId));
 
     [HttpPost]
-    public async Task<IActionResult> AcceptRide(string id) =>
-        Json(new { success = await service.SetRideStatus(id, "Accepted") });
+    public async Task<IActionResult> AcceptRide(string id)
+    {
+        var ride = await service.GetRide(id);
+        if (ride == null) return Json(new { success = false, error = "Ride not found." });
+
+        if (await service.HasOngoingRide(ride.DriverId))
+            return Json(new { success = false, error = "Complete your current ride first." });
+
+        var ok = await service.SetRideStatus(id, "Accepted");
+        if (ok) await service.SetDriverAvailability(ride.DriverId, false);
+        return Json(new { success = ok });
+    }
 
     [HttpPost]
     public async Task<IActionResult> RejectRide(string id) =>
         Json(new { success = await service.SetRideStatus(id, "Rejected") });
+
+    [HttpPost]
+    public async Task<IActionResult> CompleteRide([FromBody] RideLocationUpdate req)
+    {
+        var ok = await service.CompleteRide(req.RideId, req.Latitude, req.Longitude);
+        return Json(new { success = ok });
+    }
 
     [HttpPost]
     public async Task<IActionResult> UpdateDriverLocation([FromBody] DriverLocationUpdate req)

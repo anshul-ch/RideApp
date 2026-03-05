@@ -166,38 +166,49 @@ function checkRideStatus() {
 
     get('/Ride/RideDetails?id=' + currentRideId).then(function (ride) {
         if (ride.status === 'Accepted') {
-            clearInterval(pollTimer);
-            driverMarkers.forEach(function (m) { map.removeLayer(m); });
-            driverMarkers = [];
+            if (!driverLiveMarker) {
+                driverMarkers.forEach(function (m) { map.removeLayer(m); });
+                driverMarkers = [];
 
-            driverLiveMarker = L.marker(
-                [ride.driverLocation.latitude, ride.driverLocation.longitude],
-                { icon: emoji('🚗') }
-            ).addTo(map).bindPopup(ride.driverName + ' — ' + ride.driverVehicle);
+                driverLiveMarker = L.marker(
+                    [ride.driverLocation.latitude, ride.driverLocation.longitude],
+                    { icon: emoji('🚗') }
+                ).addTo(map).bindPopup(ride.driverName + ' — ' + ride.driverVehicle);
 
-            fitTwo(map, [userLat, userLng], [ride.driverLocation.latitude, ride.driverLocation.longitude]);
+                fitTwo(map, [userLat, userLng], [ride.driverLocation.latitude, ride.driverLocation.longitude]);
 
-            el('driverList').innerHTML =
-                '<div class="alert alert-success"><h5>Ride Confirmed!</h5>' +
-                '<p><strong>' + ride.driverName + '</strong> (' + ride.driverVehicle + ') is coming.</p></div>';
+                el('driverList').innerHTML =
+                    '<div class="alert alert-success"><h5>Ride Confirmed!</h5>' +
+                    '<p><strong>' + ride.driverName + '</strong> (' + ride.driverVehicle + ') is coming.</p></div>';
 
-            trackTimer = setInterval(function () {
-                get('/Ride/DriverLocation?driverId=' + ride.driverId).then(function (loc) {
-                    if (driverLiveMarker) driverLiveMarker.setLatLng([loc.latitude, loc.longitude]);
-                });
-            }, 3000);
+                trackTimer = setInterval(function () {
+                    get('/Ride/DriverLocation?driverId=' + ride.driverId).then(function (loc) {
+                        if (driverLiveMarker) driverLiveMarker.setLatLng([loc.latitude, loc.longitude]);
+                    });
+                }, 3000);
 
-            userPushTimer = setInterval(function () {
-                if (userLat && userLng) {
-                    post('/Ride/UpdateUserLocation', { rideId: currentRideId, latitude: userLat, longitude: userLng });
-                }
-            }, 3000);
+                userPushTimer = setInterval(function () {
+                    if (userLat && userLng) {
+                        post('/Ride/UpdateUserLocation', { rideId: currentRideId, latitude: userLat, longitude: userLng });
+                    }
+                }, 3000);
+            }
 
         } else if (ride.status === 'Rejected') {
             clearInterval(pollTimer);
             el('driverList').innerHTML =
                 '<div class="alert alert-warning">Driver declined. ' +
                 '<button class="btn btn-primary btn-sm" onclick="findDrivers()">Try Again</button></div>';
+            currentRideId = null;
+        } else if (ride.status === 'Completed') {
+            clearInterval(pollTimer);
+            clearInterval(trackTimer);
+            clearInterval(userPushTimer);
+            if (driverLiveMarker) { map.removeLayer(driverLiveMarker); driverLiveMarker = null; }
+            el('driverList').innerHTML =
+                '<div class="alert alert-success"><h5>Ride Completed!</h5>' +
+                '<p>Thank you for riding with us.</p>' +
+                '<button class="btn btn-primary btn-sm" onclick="findDrivers()">Book Another Ride</button></div>';
             currentRideId = null;
         }
     });
@@ -287,7 +298,10 @@ function checkPendingRides() {
 function respondRide(rideId, accept) {
     var url = '/Ride/' + (accept ? 'AcceptRide' : 'RejectRide') + '?id=' + rideId;
     post(url).then(function (res) {
-        if (!res.success) return;
+        if (!res.success) {
+            if (res.error) alert(res.error);
+            return;
+        }
         if (!accept) { checkPendingRides(); return; }
 
         clearInterval(pendingTimer);
@@ -303,7 +317,8 @@ function respondRide(rideId, accept) {
 
             el('pendingRides').innerHTML =
                 '<div class="alert alert-success"><h5>Ride Accepted</h5>' +
-                '<p>Picking up <strong>' + ride.userName + '</strong></p></div>';
+                '<p>Picking up <strong>' + ride.userName + '</strong></p>' +
+                '<button class="btn btn-warning" onclick="completeRide()">Complete Ride</button></div>';
 
             userPollTimer = setInterval(function () {
                 get('/Ride/UserLocation?rideId=' + acceptedRideId).then(function (loc) {
@@ -312,4 +327,24 @@ function respondRide(rideId, accept) {
             }, 3000);
         });
     });
+}
+
+function completeRide() {
+    if (!acceptedRideId) return;
+    post('/Ride/CompleteRide', { rideId: acceptedRideId, latitude: driverLat, longitude: driverLng })
+        .then(function (res) {
+            if (!res.success) { alert('Could not complete ride.'); return; }
+
+            clearInterval(userPollTimer);
+            if (userLiveMarkerOnDriverMap) {
+                driverMap.removeLayer(userLiveMarkerOnDriverMap);
+                userLiveMarkerOnDriverMap = null;
+            }
+            acceptedRideId = null;
+
+            el('pendingRides').innerHTML =
+                '<div class="alert alert-info">Ride completed! Waiting for new requests...</div>';
+
+            pendingTimer = setInterval(checkPendingRides, 3000);
+        });
 }

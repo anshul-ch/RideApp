@@ -61,6 +61,34 @@ public class RideService(MongoService mongo)
             Builders<Ride>.Update.Set(r => r.UserLocation, new Location { Latitude = lat, Longitude = lng }));
     }
 
+    public async Task<bool> HasOngoingRide(string driverId) =>
+        await mongo.Rides.Find(r => r.DriverId == driverId && r.Status == "Accepted").AnyAsync();
+
+    public async Task SetDriverAvailability(string driverId, bool available)
+    {
+        await mongo.Drivers.UpdateOneAsync(
+            d => d.Id == driverId,
+            Builders<Driver>.Update.Set(d => d.IsAvailable, available));
+    }
+
+    public async Task<bool> CompleteRide(string rideId, double lat, double lng)
+    {
+        var ride = await GetRide(rideId);
+        if (ride == null || ride.Status != "Accepted") return false;
+
+        var result = await mongo.Rides.UpdateOneAsync(
+            r => r.Id == rideId,
+            Builders<Ride>.Update.Set(r => r.Status, "Completed"));
+
+        if (result.ModifiedCount > 0)
+        {
+            await UpdateDriverLocation(ride.DriverId, lat, lng);
+            await SetDriverAvailability(ride.DriverId, true);
+            return true;
+        }
+        return false;
+    }
+
     static double DistanceKm(double lat1, double lng1, double lat2, double lng2)
     {
         var dLat = Rad(lat2 - lat1);
