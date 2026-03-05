@@ -7,6 +7,9 @@ let currentDriverId = null;
 let currentRideId = null;
 let rideStatusInterval = null;
 let pendingRidesInterval = null;
+let driverLiveMarker = null;
+let userLiveMarkerOnDriverMap = null;
+let driverLocationInterval = null;
 
 function getLocationErrorMessage(err) {
     if (err.code === 1) return 'Location permission denied. Please allow location access in your browser settings.';
@@ -210,16 +213,48 @@ function requestRide(driverId) {
 function checkRideStatus() {
     if (!currentRideId) return;
 
-    fetch('/Ride/RideStatus?id=' + currentRideId)
+    fetch('/Ride/RideDetails?id=' + currentRideId)
         .then(function (r) { return r.json(); })
         .then(function (ride) {
             if (ride.status === 'Accepted') {
                 clearInterval(rideStatusInterval);
+
+                // Remove old driver markers from search
+                driverMarkers.forEach(function (m) { map.removeLayer(m); });
+                driverMarkers = [];
+
+                // Show driver on user's map
+                var driverIcon = L.divIcon({ className: 'driver-icon', html: '<div style="font-size:24px">🚗</div>', iconSize: [30, 30], iconAnchor: [15, 15] });
+                driverLiveMarker = L.marker(
+                    [ride.driverLocation.latitude, ride.driverLocation.longitude],
+                    { icon: driverIcon }
+                ).addTo(map).bindPopup('🚗 ' + ride.driverName + ' - ' + ride.driverVehicle);
+
+                // Fit map to show both user and driver
+                var bounds = L.latLngBounds(
+                    [userLat, userLng],
+                    [ride.driverLocation.latitude, ride.driverLocation.longitude]
+                );
+                map.fitBounds(bounds, { padding: [50, 50] });
+
                 document.getElementById('driverList').innerHTML =
                     '<div class="alert alert-success">' +
                     '<h5>🎉 Ride Confirmed!</h5>' +
-                    '<p>Your driver is on the way. Have a safe trip!</p></div>';
+                    '<p><strong>' + ride.driverName + '</strong> (' + ride.driverVehicle + ') is on the way!</p>' +
+                    '<p class="text-muted mb-0">Tracking driver location live on the map.</p></div>';
                 showMessage('userMessage', 'Your ride has been accepted!', 'success');
+
+                // Poll driver location every 3s to update marker
+                driverLocationInterval = setInterval(function () {
+                    fetch('/Ride/DriverLocation?driverId=' + ride.driverId)
+                        .then(function (r) { return r.json(); })
+                        .then(function (loc) {
+                            if (driverLiveMarker) {
+                                driverLiveMarker.setLatLng([loc.latitude, loc.longitude]);
+                            }
+                        });
+                }, 3000);
+
             } else if (ride.status === 'Rejected') {
                 clearInterval(rideStatusInterval);
                 document.getElementById('driverList').innerHTML =
@@ -390,9 +425,39 @@ function respondRide(rideId, accept) {
         .then(function (r) { return r.json(); })
         .then(function (result) {
             if (result.success) {
-                var msg = accept ? 'Ride accepted! The user has been notified.' : 'Ride rejected.';
-                alert(msg);
-                checkPendingRides();
+                if (accept) {
+                    // Stop polling for pending rides
+                    clearInterval(pendingRidesInterval);
+
+                    // Fetch ride details to get user location
+                    fetch('/Ride/RideDetails?id=' + rideId)
+                        .then(function (r) { return r.json(); })
+                        .then(function (ride) {
+                            // Show user on driver's map
+                            var userIcon = L.divIcon({ className: 'user-icon', html: '<div style="font-size:24px">🧑</div>', iconSize: [30, 30], iconAnchor: [15, 15] });
+                            userLiveMarkerOnDriverMap = L.marker(
+                                [ride.userLocation.latitude, ride.userLocation.longitude],
+                                { icon: userIcon }
+                            ).addTo(driverMap).bindPopup('🧑 ' + ride.userName + ' (Pickup)').openPopup();
+
+                            // Fit map to show both driver and user
+                            var driverLatLng = driverMap.getCenter();
+                            var bounds = L.latLngBounds(
+                                [driverLatLng.lat, driverLatLng.lng],
+                                [ride.userLocation.latitude, ride.userLocation.longitude]
+                            );
+                            driverMap.fitBounds(bounds, { padding: [50, 50] });
+
+                            document.getElementById('pendingRides').innerHTML =
+                                '<div class="alert alert-success">' +
+                                '<h5>🎉 Ride Accepted!</h5>' +
+                                '<p>Picking up <strong>' + ride.userName + '</strong></p>' +
+                                '<p class="text-muted mb-0">User location is shown on the map.</p></div>';
+                        });
+                } else {
+                    alert('Ride rejected.');
+                    checkPendingRides();
+                }
             }
         })
         .catch(function () {

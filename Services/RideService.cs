@@ -78,6 +78,13 @@ namespace RideApp.Services
             await _mongo.Drivers.UpdateOneAsync(d => d.Id == driverId, update);
         }
 
+        public async Task<Driver?> GetDriver(string driverId)
+        {
+            return await _mongo.Drivers
+                .Find(d => d.Id == driverId)
+                .FirstOrDefaultAsync();
+        }
+
         private static double GetDistanceKm(double lat1, double lng1, double lat2, double lng2)
         {
             const double R = 6371;

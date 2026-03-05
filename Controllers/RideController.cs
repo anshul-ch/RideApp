@@ -43,6 +43,33 @@ namespace RideApp.Controllers
         }
 
         [HttpGet]
+        public async Task<IActionResult> RideDetails(string id)
+        {
+            var ride = await _service.GetRide(id);
+            if (ride == null) return NotFound();
+            var driver = await _service.GetDriver(ride.DriverId);
+            return Json(new
+            {
+                ride.Id,
+                ride.UserName,
+                userLocation = ride.UserLocation,
+                ride.DriverId,
+                ride.Status,
+                driverName = driver?.Name,
+                driverVehicle = driver?.VehicleNumber,
+                driverLocation = driver?.Location
+            });
+        }
+
+        [HttpGet]
+        public async Task<IActionResult> DriverLocation(string driverId)
+        {
+            var driver = await _service.GetDriver(driverId);
+            if (driver == null) return NotFound();
+            return Json(driver.Location);
+        }
+
+        [HttpGet]
         public async Task<IActionResult> PendingRides(string driverId)
         {
             var rides = await _service.GetPendingRidesForDriver(driverId);
