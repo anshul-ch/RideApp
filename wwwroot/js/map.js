@@ -55,9 +55,9 @@ function initUserMap() {
 
     showMessage('userMessage', 'Getting your location...', 'info');
 
-    navigator.geolocation.getCurrentPosition(function (pos) {
-        userLat = pos.coords.latitude;
-        userLng = pos.coords.longitude;
+    getUserLocation(function (lat, lng) {
+        userLat = lat;
+        userLng = lng;
 
         map = initMapAt('map', userLat, userLng, 14);
 
@@ -75,12 +75,26 @@ function initUserMap() {
             userLat = p.coords.latitude;
             userLng = p.coords.longitude;
             userMarker.setLatLng([userLat, userLng]);
-        }, null, { enableHighAccuracy: true });
-    }, function (err) {
-        showMessage('userMessage', getLocationErrorMessage(err) + ' You can enter your location manually below.', 'danger');
+        }, null, { enableHighAccuracy: false, maximumAge: 30000 });
+    }, function (msg) {
+        showMessage('userMessage', msg + ' You can enter your location manually below.', 'danger');
         showManualLocationInput();
         map = initMapAt('map', 28.6139, 77.2090, 12);
-    }, { enableHighAccuracy: true, timeout: 10000 });
+    });
+}
+
+function getUserLocation(onSuccess, onError) {
+    navigator.geolocation.getCurrentPosition(
+        function (pos) { onSuccess(pos.coords.latitude, pos.coords.longitude); },
+        function () {
+            navigator.geolocation.getCurrentPosition(
+                function (pos) { onSuccess(pos.coords.latitude, pos.coords.longitude); },
+                function (err) { onError(getLocationErrorMessage(err)); },
+                { enableHighAccuracy: false, timeout: 15000, maximumAge: 60000 }
+            );
+        },
+        { enableHighAccuracy: true, timeout: 5000, maximumAge: 30000 }
+    );
 }
 
 function showManualLocationInput() {
