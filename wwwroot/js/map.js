@@ -4,15 +4,14 @@ var userLat, userLng;
 var currentDriverId, currentRideId;
 var pollTimer, pendingTimer, trackTimer;
 
-function $(id) { return document.getElementById(id); }
-
-function show(id) { $(id).style.display = 'block'; }
-function hide(id) { $(id).style.display = 'none'; }
+function el(id) { return document.getElementById(id); }
+function show(id) { el(id).style.display = 'block'; }
+function hide(id) { el(id).style.display = 'none'; }
 
 function msg(id, text, type) {
-    var el = $(id);
-    el.className = 'alert alert-' + type;
-    el.textContent = text;
+    var e = el(id);
+    e.className = 'alert alert-' + type;
+    e.textContent = text;
     show(id);
 }
 
@@ -96,7 +95,7 @@ function initUserMap() {
 }
 
 function showManualInput(containerId, latId, lngId, onApply) {
-    $(containerId).innerHTML =
+    el(containerId).innerHTML =
         '<div class="card mb-3"><div class="card-body">' +
         '<h6>Set Location Manually</h6>' +
         '<div class="row g-2 mb-2">' +
@@ -105,23 +104,23 @@ function showManualInput(containerId, latId, lngId, onApply) {
         '</div>' +
         '<button class="btn btn-outline-primary btn-sm" id="' + latId + 'Btn">Set Location</button>' +
         '</div></div>';
-    $(latId + 'Btn').onclick = onApply;
+    el(latId + 'Btn').onclick = onApply;
 }
 
 function applyManualLocation() {
-    var lat = parseFloat($('manualLat').value);
-    var lng = parseFloat($('manualLng').value);
+    var lat = parseFloat(el('manualLat').value);
+    var lng = parseFloat(el('manualLng').value);
     if (isNaN(lat) || isNaN(lng)) { alert('Enter valid coordinates.'); return; }
     userLat = lat; userLng = lng;
     map.setView([lat, lng], 14);
     if (userMarker) userMarker.setLatLng([lat, lng]);
     else userMarker = L.marker([lat, lng]).addTo(map).bindPopup('You').openPopup();
-    $('driverList').innerHTML = '';
+    el('driverList').innerHTML = '';
     msg('userMessage', 'Location set!', 'success');
 }
 
 function findDrivers() {
-    var name = $('userName').value.trim();
+    var name = el('userName').value.trim();
     if (!name) { msg('userMessage', 'Enter your name.', 'warning'); return; }
     if (!userLat) { msg('userMessage', 'Location not set yet.', 'warning'); return; }
 
@@ -129,13 +128,13 @@ function findDrivers() {
     driverMarkers = [];
 
     post('/Ride/FindDrivers', { latitude: userLat, longitude: userLng }).then(function (drivers) {
-        var list = $('driverList');
+        var list = el('driverList');
         if (!drivers.length) {
-            list.innerHTML = '<div class="alert alert-info">No drivers within 5 km.</div>';
+            list.innerHTML = '<div class="alert alert-info">No drivers available right now.</div>';
             return;
         }
 
-        var html = '<h5>Nearby Drivers</h5><div class="list-group">';
+        var html = '<h5>Available Drivers</h5><div class="list-group">';
         drivers.forEach(function (d) {
             var m = L.marker([d.location.latitude, d.location.longitude]).addTo(map)
                 .bindPopup(d.name + ' - ' + d.vehicleNumber);
@@ -150,11 +149,11 @@ function findDrivers() {
 }
 
 function requestRide(driverId) {
-    var name = $('userName').value.trim();
+    var name = el('userName').value.trim();
     post('/Ride/RequestRide', { userName: name, latitude: userLat, longitude: userLng, driverId: driverId })
         .then(function (ride) {
             currentRideId = ride.id;
-            $('driverList').innerHTML = '<div class="alert alert-info">Waiting for driver...</div>';
+            el('driverList').innerHTML = '<div class="alert alert-info">Waiting for driver...</div>';
             pollTimer = setInterval(checkRideStatus, 3000);
         });
 }
@@ -175,7 +174,7 @@ function checkRideStatus() {
 
             fitTwo(map, [userLat, userLng], [ride.driverLocation.latitude, ride.driverLocation.longitude]);
 
-            $('driverList').innerHTML =
+            el('driverList').innerHTML =
                 '<div class="alert alert-success"><h5>Ride Confirmed!</h5>' +
                 '<p><strong>' + ride.driverName + '</strong> (' + ride.driverVehicle + ') is coming.</p></div>';
 
@@ -187,7 +186,7 @@ function checkRideStatus() {
 
         } else if (ride.status === 'Rejected') {
             clearInterval(pollTimer);
-            $('driverList').innerHTML =
+            el('driverList').innerHTML =
                 '<div class="alert alert-warning">Driver declined. ' +
                 '<button class="btn btn-primary btn-sm" onclick="findDrivers()">Try Again</button></div>';
             currentRideId = null;
@@ -197,8 +196,8 @@ function checkRideStatus() {
 
 
 function registerDriver() {
-    var name = $('driverName').value.trim();
-    var vehicle = $('vehicleNumber').value.trim();
+    var name = el('driverName').value.trim();
+    var vehicle = el('vehicleNumber').value.trim();
     if (!name || !vehicle) { alert('Fill in name and vehicle number.'); return; }
 
     var btn = document.querySelector('#driverRegForm button');
@@ -209,7 +208,7 @@ function registerDriver() {
     }, function (err) {
         btn.disabled = false; btn.textContent = 'Go Online';
         alert(err + ' Enter location manually.');
-        if (!$('driverManualLoc')) {
+        if (!el('driverManualLoc')) {
             var div = document.createElement('div');
             div.id = 'driverManualLoc';
             div.className = 'mt-3';
@@ -218,15 +217,15 @@ function registerDriver() {
                 '<div class="col"><input type="number" step="any" class="form-control" id="drvLat" placeholder="Latitude"></div>' +
                 '<div class="col"><input type="number" step="any" class="form-control" id="drvLng" placeholder="Longitude"></div>' +
                 '</div><button class="btn btn-outline-success btn-sm" onclick="registerDriverManual()">Go Online</button>';
-            $('driverRegForm').appendChild(div);
+            el('driverRegForm').appendChild(div);
         }
     });
 }
 
 function registerDriverManual() {
-    var lat = parseFloat($('drvLat').value), lng = parseFloat($('drvLng').value);
+    var lat = parseFloat(el('drvLat').value), lng = parseFloat(el('drvLng').value);
     if (isNaN(lat) || isNaN(lng)) { alert('Enter valid coordinates.'); return; }
-    var name = $('driverName').value.trim(), vehicle = $('vehicleNumber').value.trim();
+    var name = el('driverName').value.trim(), vehicle = el('vehicleNumber').value.trim();
     goOnline(name, vehicle, lat, lng);
 }
 
@@ -252,8 +251,8 @@ function checkPendingRides() {
     if (!currentDriverId) return;
 
     get('/Ride/PendingRides?driverId=' + currentDriverId).then(function (rides) {
-        var el = $('pendingRides');
-        if (!rides.length) { el.innerHTML = '<p class="text-muted">No pending requests...</p>'; return; }
+        var e = el('pendingRides');
+        if (!rides.length) { e.innerHTML = '<p class="text-muted">No pending requests...</p>'; return; }
 
         var html = '';
         rides.forEach(function (r) {
@@ -263,7 +262,7 @@ function checkPendingRides() {
                 '<button class="btn btn-danger btn-sm" onclick="respondRide(\'' + r.id + '\',false)">Reject</button>' +
                 '</div></div>';
         });
-        el.innerHTML = html;
+        e.innerHTML = html;
     });
 }
 
@@ -281,7 +280,7 @@ function respondRide(rideId, accept) {
 
             fitTwo(driverMap, driverMap.getCenter(), [loc.latitude, loc.longitude]);
 
-            $('pendingRides').innerHTML =
+            el('pendingRides').innerHTML =
                 '<div class="alert alert-success"><h5>Ride Accepted</h5>' +
                 '<p>Picking up <strong>' + ride.userName + '</strong></p></div>';
         });

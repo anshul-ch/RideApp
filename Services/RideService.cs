@@ -12,10 +12,9 @@ public class RideService(MongoService mongo)
         return driver;
     }
 
-    public async Task<List<Driver>> GetNearbyDrivers(double lat, double lng, double radiusKm = 5)
+    public async Task<List<Driver>> GetNearbyDrivers(double lat, double lng)
     {
-        var available = await mongo.Drivers.Find(d => d.IsAvailable).ToListAsync();
-        return available.Where(d => DistanceKm(lat, lng, d.Location.Latitude, d.Location.Longitude) <= radiusKm).ToList();
+        return await mongo.Drivers.Find(d => d.IsAvailable).ToListAsync();
     }
 
     public async Task<Ride> RequestRide(string userName, double lat, double lng, string driverId)
