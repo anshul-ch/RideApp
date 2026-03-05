@@ -54,6 +54,13 @@ public class RideService(MongoService mongo)
             Builders<Driver>.Update.Set(d => d.Location, new Location { Latitude = lat, Longitude = lng }));
     }
 
+    public async Task UpdateUserLocation(string rideId, double lat, double lng)
+    {
+        await mongo.Rides.UpdateOneAsync(
+            r => r.Id == rideId,
+            Builders<Ride>.Update.Set(r => r.UserLocation, new Location { Latitude = lat, Longitude = lng }));
+    }
+
     static double DistanceKm(double lat1, double lng1, double lat2, double lng2)
     {
         var dLat = Rad(lat2 - lat1);

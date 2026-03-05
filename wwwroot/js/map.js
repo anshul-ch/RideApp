@@ -1,8 +1,8 @@
-var map, driverMap, userMarker, driverLiveMarker;
+var map, driverMap, userMarker, driverLiveMarker, userLiveMarkerOnDriverMap;
 var driverMarkers = [];
-var userLat, userLng;
-var currentDriverId, currentRideId;
-var pollTimer, pendingTimer, trackTimer;
+var userLat, userLng, driverLat, driverLng;
+var currentDriverId, currentRideId, acceptedRideId;
+var pollTimer, pendingTimer, trackTimer, userPushTimer, userPollTimer, driverPushTimer;
 
 function el(id) { return document.getElementById(id); }
 function show(id) { el(id).style.display = 'block'; }
@@ -61,12 +61,11 @@ function getLocation(ok, fail) {
     );
 }
 
-function watchLocation(marker, onMove) {
+function startWatching(onUpdate) {
+    if (!navigator.geolocation) return;
     navigator.geolocation.watchPosition(function (p) {
-        var lat = p.coords.latitude, lng = p.coords.longitude;
-        marker.setLatLng([lat, lng]);
-        if (onMove) onMove(lat, lng);
-    }, null, { enableHighAccuracy: false, maximumAge: 30000 });
+        onUpdate(p.coords.latitude, p.coords.longitude);
+    }, null, { enableHighAccuracy: false, maximumAge: 10000 });
 }
 
 
@@ -86,7 +85,11 @@ function initUserMap() {
         map = makeMap('map', lat, lng);
         userMarker = L.marker([lat, lng]).addTo(map).bindPopup('You').openPopup();
         hide('userMessage');
-        watchLocation(userMarker, function (la, ln) { userLat = la; userLng = ln; });
+
+        startWatching(function (la, ln) {
+            userLat = la; userLng = ln;
+            userMarker.setLatLng([la, ln]);
+        });
     }, function (err) {
         msg('userMessage', err + ' Enter location manually.', 'warning');
         map = makeMap('map', 28.6139, 77.2090, 12);
@@ -184,6 +187,12 @@ function checkRideStatus() {
                 });
             }, 3000);
 
+            userPushTimer = setInterval(function () {
+                if (userLat && userLng) {
+                    post('/Ride/UpdateUserLocation', { rideId: currentRideId, latitude: userLat, longitude: userLng });
+                }
+            }, 3000);
+
         } else if (ride.status === 'Rejected') {
             clearInterval(pollTimer);
             el('driverList').innerHTML =
@@ -230,6 +239,8 @@ function registerDriverManual() {
 }
 
 function goOnline(name, vehicle, lat, lng) {
+    driverLat = lat; driverLng = lng;
+
     post('/Ride/RegisterDriver', { name: name, vehicleNumber: vehicle, isAvailable: true, location: { latitude: lat, longitude: lng } })
         .then(function (driver) {
             currentDriverId = driver.id;
@@ -239,9 +250,16 @@ function goOnline(name, vehicle, lat, lng) {
             driverMap = makeMap('driverMap', lat, lng);
             var marker = L.marker([lat, lng]).addTo(driverMap).bindPopup('You').openPopup();
 
-            watchLocation(marker, function (la, ln) {
-                post('/Ride/UpdateDriverLocation', { driverId: currentDriverId, latitude: la, longitude: ln });
+            startWatching(function (la, ln) {
+                driverLat = la; driverLng = ln;
+                marker.setLatLng([la, ln]);
             });
+
+            driverPushTimer = setInterval(function () {
+                if (driverLat && driverLng && currentDriverId) {
+                    post('/Ride/UpdateDriverLocation', { driverId: currentDriverId, latitude: driverLat, longitude: driverLng });
+                }
+            }, 3000);
 
             pendingTimer = setInterval(checkPendingRides, 3000);
         });
@@ -273,16 +291,25 @@ function respondRide(rideId, accept) {
         if (!accept) { checkPendingRides(); return; }
 
         clearInterval(pendingTimer);
+        acceptedRideId = rideId;
+
         get('/Ride/RideDetails?id=' + rideId).then(function (ride) {
             var loc = ride.userLocation;
-            L.marker([loc.latitude, loc.longitude], { icon: emoji('🧑') })
-                .addTo(driverMap).bindPopup(ride.userName + ' (Pickup)').openPopup();
+            userLiveMarkerOnDriverMap = L.marker(
+                [loc.latitude, loc.longitude], { icon: emoji('🧑') }
+            ).addTo(driverMap).bindPopup(ride.userName + ' (Pickup)').openPopup();
 
             fitTwo(driverMap, driverMap.getCenter(), [loc.latitude, loc.longitude]);
 
             el('pendingRides').innerHTML =
                 '<div class="alert alert-success"><h5>Ride Accepted</h5>' +
                 '<p>Picking up <strong>' + ride.userName + '</strong></p></div>';
+
+            userPollTimer = setInterval(function () {
+                get('/Ride/UserLocation?rideId=' + acceptedRideId).then(function (loc) {
+                    if (userLiveMarkerOnDriverMap) userLiveMarkerOnDriverMap.setLatLng([loc.latitude, loc.longitude]);
+                });
+            }, 3000);
         });
     });
 }

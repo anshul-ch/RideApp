@@ -58,4 +58,18 @@ public class RideController(RideService service) : Controller
         await service.UpdateDriverLocation(req.DriverId, req.Latitude, req.Longitude);
         return Json(new { success = true });
     }
+
+    [HttpGet]
+    public async Task<IActionResult> UserLocation(string rideId)
+    {
+        var ride = await service.GetRide(rideId);
+        return ride == null ? NotFound() : Json(ride.UserLocation);
+    }
+
+    [HttpPost]
+    public async Task<IActionResult> UpdateUserLocation([FromBody] RideLocationUpdate req)
+    {
+        await service.UpdateUserLocation(req.RideId, req.Latitude, req.Longitude);
+        return Json(new { success = true });
+    }
 }
